@@ -38,7 +38,7 @@ AI Generate Commit is a tool that uses artificial intelligence to automatically 
 
 4. (Optional) Move the binary to a directory in your PATH:
    ```
-   sudo mv ai-generate-commit /usr/local/bin/ && sudo chmod +x /usr/local/bin/ai-generate-commit-*
+   sudo mv ai-generate-commit /usr/local/bin/ && sudo chmod +x /usr/local/bin/ai-generate-commit
    ```
 
 ### Installing using `go install`
