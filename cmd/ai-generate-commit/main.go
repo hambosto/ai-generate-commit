@@ -14,92 +14,136 @@ import (
 )
 
 func main() {
-	// Define command line flags for setting and getting configuration
-	setConfigCmd := flag.NewFlagSet("setConfig", flag.ExitOnError)
-	setConfigKey := setConfigCmd.String("key", "", "Config key")
-	setConfigValue := setConfigCmd.String("value", "", "Config value")
-
-	getConfigCmd := flag.NewFlagSet("getConfig", flag.ExitOnError)
-	getConfigKey := getConfigCmd.String("key", "", "Config key")
-
-	// Check for command line arguments
-	if len(os.Args) < 2 {
-		runGenerate() // Run generate by default if no command is given
-		return
-	}
-
-	// Parse the command line arguments
-	switch os.Args[1] {
-	case "setConfig":
-		setConfigCmd.Parse(os.Args[2:])
-		config.SetConfig(*setConfigKey, *setConfigValue)
-	case "getConfig":
-		getConfigCmd.Parse(os.Args[2:])
-		value := config.GetConfig(*getConfigKey)
-		fmt.Printf("%s=%s\n", *getConfigKey, value)
-	case "getConfigPath":
-		fmt.Printf("Configuration file path: %s\n", config.GetConfigPath())
-	case "generate":
-		runGenerate() // Directly call runGenerate for the generate command
-	default:
-		fmt.Println("Unknown command")
-		os.Exit(1)
+	if err := run(); err != nil {
+		log.Fatalf("Error: %v", err)
 	}
 }
 
-// runGenerate orchestrates the steps to generate and commit a commit message.
-func runGenerate() {
-	// Ensure the current directory is a git repository
+func run() error {
+	if len(os.Args) < 2 {
+		return runGenerate()
+	}
+
+	switch os.Args[1] {
+	case "setConfig":
+		return runSetConfig()
+	case "getConfig":
+		return runGetConfig()
+	case "getConfigPath":
+		return runGetConfigPath()
+	case "generate":
+		return runGenerate()
+	default:
+		return fmt.Errorf("unknown command: %s", os.Args[1])
+	}
+}
+
+func runSetConfig() error {
+	cmd := flag.NewFlagSet("setConfig", flag.ExitOnError)
+	key := cmd.String("key", "", "Config key")
+	value := cmd.String("value", "", "Config value")
+
+	if err := cmd.Parse(os.Args[2:]); err != nil {
+		return err
+	}
+
+	if *key == "" || *value == "" {
+		return fmt.Errorf("both key and value must be provided")
+	}
+
+	return config.SetConfig(*key, *value)
+}
+
+func runGetConfig() error {
+	cmd := flag.NewFlagSet("getConfig", flag.ExitOnError)
+	key := cmd.String("key", "", "Config key")
+
+	if err := cmd.Parse(os.Args[2:]); err != nil {
+		return err
+	}
+
+	if *key == "" {
+		return fmt.Errorf("key must be provided")
+	}
+
+	value, err := config.GetConfig(*key)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s=%s\n", *key, value)
+	return nil
+}
+
+func runGetConfigPath() error {
+	fmt.Printf("Configuration file path: %s\n", config.GetConfigPath())
+	return nil
+}
+
+func runGenerate() error {
 	if err := git.AssertGitRepo(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	// Check if files are staged for commit
 	if err := git.EnsureFilesAreStaged(); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	// Get the list of staged files and their differences
 	stagedFiles, err := git.GetStagedFiles()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	diff, err := git.GetDiff(stagedFiles)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if diff == "" {
-		log.Fatal("No changes detected in the staged files. Please make some changes before generating a commit message.")
+		return fmt.Errorf("no changes detected in the staged files")
 	}
 
-	// Generate the commit message using the service
-	commitMessage, err := service.GenerateCommitMessage(diff)
+	generator, err := service.NewCommitMessageGenerator("")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	// Display the generated commit message
+	commitMessage, err := generator.GenerateCommitMessage(diff)
+	if err != nil {
+		return err
+	}
+
 	fmt.Printf("Generated Commit Message:\n\n%s\n\n", commitMessage)
 
-	// Prompt the user for confirmation to use the commit message
-	if confirmCommit(commitMessage) {
+	if confirmCommit() {
 		if err := git.GitCommit(commitMessage); err != nil {
-			log.Fatal(err)
+			return err
 		}
 		fmt.Println("Changes committed successfully.")
 	} else {
 		fmt.Println("Commit aborted.")
 	}
+
+	return nil
 }
 
-// confirmCommit prompts the user to confirm if they want to use the generated commit message.
-func confirmCommit(commitMessage string) bool {
+func confirmCommit() bool {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Do you want to use this commit message? (y/n): ")
-	response, _ := reader.ReadString('\n')
-	response = strings.TrimSpace(response)
-
-	return response == "y" || response == "Y"
+	for {
+		fmt.Print("Do you want to use this commit message? (y/n): ")
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Error reading input. Please try again.")
+			continue
+		}
+		response = strings.TrimSpace(strings.ToLower(response))
+		switch response {
+		case "y":
+			return true
+		case "n":
+			return false
+		default:
+			fmt.Println("Invalid input. Please enter 'y' for yes or 'n' for no.")
+		}
+	}
 }

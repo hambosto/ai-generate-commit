@@ -7,97 +7,97 @@ import (
 	"path/filepath"
 )
 
-// Config holds the configuration for the application,
-// which includes the GROQ API key and the commit prompt.
+// Config holds the configuration for the application.
 type Config struct {
-	GROQ_APIKEY   string `json:"GROQ_APIKEY"`   // API key for GROQ services.
-	COMMIT_PROMPT string `json:"COMMIT_PROMPT"` // Commit prompt for generating commit messages.
+	GROQAPIKey   string `json:"GROQ_APIKEY"`
+	CommitPrompt string `json:"COMMIT_PROMPT"`
 }
 
-var configFilePath string
+const (
+	configFileName = ".ai-commit"
+)
 
-// init initializes the config file path to store the configuration
-// in the user's home directory with the filename ".ai-commit".
+var (
+	configFilePath string
+	ErrUnknownKey  = fmt.Errorf("unknown config key")
+)
+
 func init() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("Failed to get user home directory: %v", err))
 	}
-	configFilePath = filepath.Join(homeDir, ".ai-commit")
+	configFilePath = filepath.Join(homeDir, configFileName)
 }
 
 // loadConfig loads the configuration from the file.
-// It returns an empty Config if the file doesn't exist.
-func loadConfig() Config {
-	var config Config
-
+func loadConfig() (Config, error) {
 	data, err := os.ReadFile(configFilePath)
 	if err != nil {
-		// If the config file does not exist, return an empty Config struct.
 		if os.IsNotExist(err) {
-			return Config{}
+			return Config{}, nil
 		}
-		panic(err)
+		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Unmarshal the JSON data into the Config struct.
-	err = json.Unmarshal(data, &config)
-	if err != nil {
-		panic(err)
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return Config{}, fmt.Errorf("failed to parse config file: %w", err)
 	}
-
-	return config
+	return config, nil
 }
 
-// saveConfig saves the given Config struct to the configuration file in JSON format.
-func saveConfig(config Config) {
-	// Marshal the Config struct into a pretty-printed JSON format.
+// saveConfig saves the given Config struct to the configuration file.
+func saveConfig(config Config) error {
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write the JSON data to the config file with 644 permissions.
-	err = os.WriteFile(configFilePath, data, 0o644)
+	if err := os.WriteFile(configFilePath, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	return nil
+}
+
+// SetConfig updates the configuration for the given key with the specified value.
+func SetConfig(key, value string) error {
+	config, err := loadConfig()
 	if err != nil {
-		panic(err)
+		return err
 	}
-}
 
-// SetConfig updates the configuration for the given key with the specified value
-// and saves the updated configuration back to the file.
-func SetConfig(key, value string) {
-	config := loadConfig()
-
-	// Update the appropriate configuration field based on the key.
 	switch key {
 	case "GROQ_APIKEY":
-		config.GROQ_APIKEY = value
+		config.GROQAPIKey = value
 	case "COMMIT_PROMPT":
-		config.COMMIT_PROMPT = value
+		config.CommitPrompt = value
 	default:
-		fmt.Printf("Unknown config key: %s\n", key)
-		return
+		return fmt.Errorf("%w: %s", ErrUnknownKey, key)
 	}
 
-	// Save the updated configuration to the file.
-	saveConfig(config)
+	if err := saveConfig(config); err != nil {
+		return err
+	}
+
 	fmt.Printf("Configuration updated: %s=%s\n", key, value)
+	return nil
 }
 
-// GetConfig retrieves the value of the specified configuration key from the config file.
-// It returns "Not Set" if the key is unknown.
-func GetConfig(key string) string {
-	config := loadConfig()
+// GetConfig retrieves the value of the specified configuration key.
+func GetConfig(key string) (string, error) {
+	config, err := loadConfig()
+	if err != nil {
+		return "", err
+	}
 
-	// Return the corresponding value based on the key.
 	switch key {
 	case "GROQ_APIKEY":
-		return config.GROQ_APIKEY
+		return config.GROQAPIKey, nil
 	case "COMMIT_PROMPT":
-		return config.COMMIT_PROMPT
+		return config.CommitPrompt, nil
 	default:
-		return "Not Set"
+		return "", fmt.Errorf("%w: %s", ErrUnknownKey, key)
 	}
 }
 
@@ -105,3 +105,4 @@ func GetConfig(key string) string {
 func GetConfigPath() string {
 	return configFilePath
 }
+

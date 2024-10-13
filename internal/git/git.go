@@ -10,47 +10,44 @@ import (
 
 // FileStatus represents a file's path and its current Git status.
 type FileStatus struct {
-	Path   string // Path of the file.
-	Status string // Status of the file (e.g., Modified, Added, etc.).
+	Path   string
+	Status string
 }
 
+// ErrNotGitRepo is returned when the current directory is not a Git repository.
+var ErrNotGitRepo = errors.New("not a Git repository")
+
 // AssertGitRepo checks if the current directory is a Git repository.
-// It returns an error if the directory is not inside a Git work tree.
 func AssertGitRepo() error {
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	if err := cmd.Run(); err != nil {
-		return errors.New("not a Git repository")
+		return ErrNotGitRepo
 	}
 	return nil
 }
 
 // GetStagedFiles returns a slice of staged file names.
-// These are the files that have been added to the index but not yet committed.
 func GetStagedFiles() ([]string, error) {
-	cmd := exec.Command("git", "diff", "--name-only", "--cached")
-	output, err := cmd.Output()
+	output, err := execGitCommand("git", "diff", "--name-only", "--cached")
 	if err != nil {
 		return nil, err
 	}
-	files := strings.Split(strings.TrimSpace(string(output)), "\n")
-	return filterFiles(files), nil
+	return filterEmptyStrings(strings.Split(output, "\n")), nil
 }
 
-// GetChangedFiles returns a slice of FileStatus for all the files with changes (staged or unstaged).
-// It retrieves the status of each file using "git status --porcelain".
+// GetChangedFiles returns a slice of FileStatus for all files with changes.
 func GetChangedFiles() ([]FileStatus, error) {
-	cmd := exec.Command("git", "status", "--porcelain")
-	output, err := cmd.Output()
+	output, err := execGitCommand("git", "status", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("error getting git status: %w", err)
 	}
 
 	var changedFiles []FileStatus
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) < 4 {
-			continue // Skip invalid lines that are too short.
+			continue
 		}
 		status := strings.TrimSpace(line[:2])
 		file := strings.TrimSpace(line[3:])
@@ -67,65 +64,19 @@ func GetChangedFiles() ([]FileStatus, error) {
 	return changedFiles, nil
 }
 
-// translateStatus converts a Git status code (e.g., "M", "A") to a human-readable string.
-func translateStatus(status string) string {
-	switch status {
-	case "M":
-		return "Modified"
-	case "A":
-		return "Added"
-	case "D":
-		return "Deleted"
-	case "R":
-		return "Renamed"
-	case "C":
-		return "Copied"
-	case "U":
-		return "Updated but unmerged"
-	case "??":
-		return "Untracked"
-	default:
-		return "Unknown"
-	}
-}
-
-// filterFiles removes empty file names from the list of files.
-func filterFiles(files []string) []string {
-	var filteredFiles []string
-	for _, file := range files {
-		if file != "" {
-			filteredFiles = append(filteredFiles, file)
-		}
-	}
-	return filteredFiles
-}
-
 // GetDiff returns the diff of the provided list of files.
-// It runs "git diff --staged" to show the diff for the staged changes.
 func GetDiff(files []string) (string, error) {
 	args := append([]string{"diff", "--staged", "--"}, files...)
-	cmd := exec.Command("git", args...)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
+	return execGitCommand("git", args...)
 }
 
 // GitCommit creates a new Git commit with the provided message.
-// It runs "git commit -m" with the specified commit message.
 func GitCommit(message string) error {
-	cmd := exec.Command("git", "commit", "-m", message)
-	err := cmd.Run()
-	if err != nil {
-		return err
-	}
-	return nil
+	_, err := execGitCommand("git", "commit", "-m", message)
+	return err
 }
 
-// EnsureFilesAreStaged checks if there are any staged files.
-// If no files are staged, it prompts the user to stage all changes.
-// If there are no changes, it returns an error.
+// EnsureFilesAreStaged checks if there are any staged files and prompts to stage if necessary.
 func EnsureFilesAreStaged() error {
 	stagedFiles, err := GetStagedFiles()
 	if err != nil {
@@ -136,27 +87,65 @@ func EnsureFilesAreStaged() error {
 		if err != nil {
 			return err
 		}
-		if len(changedFiles) > 0 {
-			fmt.Println("The following files have changes:")
-			for _, file := range changedFiles {
-				fmt.Printf("%s: %s\n", file.Status, file.Path)
-			}
-			fmt.Print("Do you want to stage all these changes? (y/n): ")
-			var response string
-			fmt.Scanln(&response)
-			if response == "y" || response == "Y" {
-				cmd := exec.Command("git", "add", ".")
-				err := cmd.Run()
-				if err != nil {
-					return fmt.Errorf("error staging files: %w", err)
-				}
-				fmt.Println("Changes staged successfully.")
-			} else {
-				return fmt.Errorf("no staged files. Please stage files before generating a commit message")
-			}
-		} else {
-			return fmt.Errorf("no changes detected. Please make some changes before generating a commit message")
+		if len(changedFiles) == 0 {
+			return errors.New("no changes detected")
 		}
+
+		fmt.Println("The following files have changes:")
+		for _, file := range changedFiles {
+			fmt.Printf("%s: %s\n", file.Status, file.Path)
+		}
+
+		if !promptYesNo("Do you want to stage all these changes?") {
+			return errors.New("no staged files")
+		}
+
+		if _, err := execGitCommand("git", "add", "."); err != nil {
+			return fmt.Errorf("error staging files: %w", err)
+		}
+		fmt.Println("Changes staged successfully.")
 	}
 	return nil
 }
+
+// Helper functions
+
+func execGitCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.Output()
+	return strings.TrimSpace(string(output)), err
+}
+
+func filterEmptyStrings(slice []string) []string {
+	var filtered []string
+	for _, s := range slice {
+		if s != "" {
+			filtered = append(filtered, s)
+		}
+	}
+	return filtered
+}
+
+func translateStatus(status string) string {
+	statusMap := map[string]string{
+		"M":  "Modified",
+		"A":  "Added",
+		"D":  "Deleted",
+		"R":  "Renamed",
+		"C":  "Copied",
+		"U":  "Updated but unmerged",
+		"??": "Untracked",
+	}
+	if translated, ok := statusMap[status]; ok {
+		return translated
+	}
+	return "Unknown"
+}
+
+func promptYesNo(question string) bool {
+	fmt.Printf("%s (y/n): ", question)
+	var response string
+	fmt.Scanln(&response)
+	return strings.ToLower(response) == "y"
+}
+

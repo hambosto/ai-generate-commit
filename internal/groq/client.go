@@ -6,42 +6,61 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/hambosto/ai-generate-commit/internal/config"
 )
 
-const BaseURL = "https://api.groq.com/openai/v1/chat/completions"
+const (
+	BaseURL     = "https://api.groq.com/openai/v1/chat/completions"
+	contentType = "application/json"
+)
 
 // Message represents a single message in the conversation with the AI.
 type Message struct {
-	Role    string `json:"role"`    // Role could be "user" or "assistant"
-	Content string `json:"content"` // The content of the message
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // CompletionRequest holds the request payload sent to the API for generating a completion.
 type CompletionRequest struct {
-	Model    string    `json:"model"`    // The model ID to use, e.g., "gpt-3.5-turbo"
-	Messages []Message `json:"messages"` // A list of messages in the conversation
+	Model    string    `json:"model"`
+	Messages []Message `json:"messages"`
 }
 
 // CompletionResponse represents the response payload from the API.
 type CompletionResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"` // The content of the generated completion
+			Content string `json:"content"`
 		} `json:"message"`
-	} `json:"choices"` // A list of possible completions (choices)
+	} `json:"choices"`
 }
 
-// GenerateCompletion takes a list of messages and a model ID, sends the data to the API, and returns the generated completion content.
-func GenerateCompletion(messages []Message, model string) (string, error) {
-	// Fetch the API key from the config
-	apiKey := config.GetConfig("GROQ_APIKEY")
-	if len(apiKey) == 0 {
-		return "", fmt.Errorf("GROQ_APIKEY not set")
+// Client represents a GROQ API client.
+type Client struct {
+	httpClient *http.Client
+	apiKey     string
+}
+
+// NewClient creates a new GROQ API client.
+func NewClient() (*Client, error) {
+	apiKey, err := config.GetConfig("GROQ_APIKEY")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GROQ_APIKEY: %w", err)
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("GROQ_APIKEY not set")
 	}
 
-	// Prepare the request body with the model and messages
+	return &Client{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		apiKey:     apiKey,
+	}, nil
+}
+
+// GenerateCompletion sends a request to the GROQ API and returns the generated completion content.
+func (c *Client) GenerateCompletion(messages []Message, model string) (string, error) {
 	reqBody, err := json.Marshal(CompletionRequest{
 		Model:    model,
 		Messages: messages,
@@ -50,42 +69,38 @@ func GenerateCompletion(messages []Message, model string) (string, error) {
 		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	// Create a new HTTP POST request
-	req, err := http.NewRequest("POST", BaseURL, bytes.NewBuffer(reqBody))
+	req, err := http.NewRequest(http.MethodPost, BaseURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers, including the Authorization header with the API key
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", contentType)
 
-	// Send the request using the default HTTP client
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read the response body
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Unmarshal the JSON response into CompletionResponse
 	var completionResp CompletionResponse
-	err = json.Unmarshal(body, &completionResp)
-	if err != nil {
+	if err := json.Unmarshal(body, &completionResp); err != nil {
 		return "", fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	// Check if any completions were returned
 	if len(completionResp.Choices) == 0 {
 		return "", fmt.Errorf("no completion choices returned")
 	}
 
-	// Return the first completion message's content
 	return completionResp.Choices[0].Message.Content, nil
 }
+
