@@ -8,11 +8,14 @@ import (
 	"strings"
 )
 
+// FileStatus represents a file's path and its current Git status.
 type FileStatus struct {
-	Path   string
-	Status string
+	Path   string // Path of the file.
+	Status string // Status of the file (e.g., Modified, Added, etc.).
 }
 
+// AssertGitRepo checks if the current directory is a Git repository.
+// It returns an error if the directory is not inside a Git work tree.
 func AssertGitRepo() error {
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	if err := cmd.Run(); err != nil {
@@ -21,6 +24,8 @@ func AssertGitRepo() error {
 	return nil
 }
 
+// GetStagedFiles returns a slice of staged file names.
+// These are the files that have been added to the index but not yet committed.
 func GetStagedFiles() ([]string, error) {
 	cmd := exec.Command("git", "diff", "--name-only", "--cached")
 	output, err := cmd.Output()
@@ -31,6 +36,8 @@ func GetStagedFiles() ([]string, error) {
 	return filterFiles(files), nil
 }
 
+// GetChangedFiles returns a slice of FileStatus for all the files with changes (staged or unstaged).
+// It retrieves the status of each file using "git status --porcelain".
 func GetChangedFiles() ([]FileStatus, error) {
 	cmd := exec.Command("git", "status", "--porcelain")
 	output, err := cmd.Output()
@@ -43,7 +50,7 @@ func GetChangedFiles() ([]FileStatus, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if len(line) < 4 {
-			continue // Skip invalid lines
+			continue // Skip invalid lines that are too short.
 		}
 		status := strings.TrimSpace(line[:2])
 		file := strings.TrimSpace(line[3:])
@@ -60,6 +67,7 @@ func GetChangedFiles() ([]FileStatus, error) {
 	return changedFiles, nil
 }
 
+// translateStatus converts a Git status code (e.g., "M", "A") to a human-readable string.
 func translateStatus(status string) string {
 	switch status {
 	case "M":
@@ -81,6 +89,7 @@ func translateStatus(status string) string {
 	}
 }
 
+// filterFiles removes empty file names from the list of files.
 func filterFiles(files []string) []string {
 	var filteredFiles []string
 	for _, file := range files {
@@ -91,6 +100,8 @@ func filterFiles(files []string) []string {
 	return filteredFiles
 }
 
+// GetDiff returns the diff of the provided list of files.
+// It runs "git diff --staged" to show the diff for the staged changes.
 func GetDiff(files []string) (string, error) {
 	args := append([]string{"diff", "--staged", "--"}, files...)
 	cmd := exec.Command("git", args...)
@@ -101,6 +112,8 @@ func GetDiff(files []string) (string, error) {
 	return string(output), nil
 }
 
+// GitCommit creates a new Git commit with the provided message.
+// It runs "git commit -m" with the specified commit message.
 func GitCommit(message string) error {
 	cmd := exec.Command("git", "commit", "-m", message)
 	err := cmd.Run()
@@ -110,6 +123,9 @@ func GitCommit(message string) error {
 	return nil
 }
 
+// EnsureFilesAreStaged checks if there are any staged files.
+// If no files are staged, it prompts the user to stage all changes.
+// If there are no changes, it returns an error.
 func EnsureFilesAreStaged() error {
 	stagedFiles, err := GetStagedFiles()
 	if err != nil {
