@@ -47,14 +47,12 @@ AI Generate Commit is a tool that uses artificial intelligence to automatically 
 
 ```
 go install github.com/hambosto/ai-generate-commit/cmd/ai-generate-commit@latest
-
 ```
 
 2. Ensure that `$GOPATH/bin` is in your `PATH` so that you can run the tool from anywhere:
 
 ```
 export PATH=$PATH:$(go env GOPATH)/bin
-
 ```
 
 ### Installing from release
