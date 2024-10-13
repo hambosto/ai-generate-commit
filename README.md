@@ -19,26 +19,20 @@ AI Generate Commit is a tool that uses artificial intelligence to automatically 
 ### Installing from source
 
 1. Clone the repository:
-
    ```
    git clone https://github.com/hambosto/ai-generate-commit.git
    ```
-
 2. Change to the project directory:
-
    ```
    cd ai-generate-commit
    ```
-
 3. Build the project:
-
    ```
    go build -o ai-generate-commit ./cmd/ai-generate-commit
    ```
-
 4. (Optional) Move the binary to a directory in your PATH:
    ```
-   sudo mv ai-generate-commit /usr/local/bin/ && sudo chmod +x /usr/local/bin/ai-generate-commit
+   sudo mv ai-generate-commit /usr/local/bin/
    ```
 
 ### Installing using `go install`
@@ -61,8 +55,25 @@ export PATH=$PATH:$(go env GOPATH)/bin
 2. Download the appropriate binary for your operating system.
 3. (Optional) Move the binary to a directory in your PATH:
    ```
-   sudo mv ai-generate-commit-* /usr/local/bin/
+   sudo mv ai-generate-commit-* /usr/local/bin/ai-generate-commit
    ```
+
+### Setting Permissions
+
+After installation, make sure the tool has the correct execution permissions:
+
+1. If you installed the tool in a directory in your PATH (like `/usr/local/bin`):
+
+   ```
+   sudo chmod +x /usr/local/bin/ai-generate-commit
+   ```
+
+2. If you're using the tool from the build directory:
+   ```
+   chmod +x ./ai-generate-commit
+   ```
+
+This ensures that you can run the tool without any permission issues.
 
 ## Configuration
 
@@ -71,7 +82,6 @@ Before using the tool, you need to set up your GROQ API key and customize the co
 ### Setting up GROQ API Key
 
 1. Sign up for a GROQ account and obtain your API key from [https://console.groq.com](https://console.groq.com).
-
 2. Set your GROQ API key using the following command:
    ```
    ai-generate-commit setConfig -key GROQ_APIKEY -value your_api_key_here
@@ -89,37 +99,29 @@ Default prompt if not set:
 
 ```
 Based on the following git diff, please generate a concise and informative commit message:
-
 {diff}
-
 The commit message should follow these guidelines:
 1. Start with a short summary (50 chars or less)
 2. Followed by a blank line
 3. Followed by a more detailed description, if necessary
-
 Please write the commit message now:
 ```
 
 ## Usage
 
 1. Stage your changes using `git add`.
-
 2. Run the tool:
-
    ```
    ai-generate-commit generate
    ```
-
 3. Review the generated commit message and confirm if you want to use it.
 
 ## Additional Commands
 
 - Get the current value of a configuration key:
-
   ```
   ai-generate-commit getConfig -key KEY_NAME
   ```
-
 - Get the path of the configuration file:
   ```
   ai-generate-commit getConfigPath
